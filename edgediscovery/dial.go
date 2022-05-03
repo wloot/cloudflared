@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
+	"syscall"
 	"time"
 
 	"github.com/pkg/errors"
+	"golang.org/x/sys/unix"
 )
 
 // DialEdgeWithH2Mux makes a TLS connection to a Cloudflare edge node
@@ -20,7 +22,13 @@ func DialEdge(
 	dialCtx, dialCancel := context.WithTimeout(ctx, timeout)
 	defer dialCancel()
 
-	dialer := net.Dialer{}
+	dialer := net.Dialer{
+		Control: func(network string, address string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_NOTSENT_LOWAT, 16384)
+			})
+		},
+	}
 	edgeConn, err := dialer.DialContext(dialCtx, "tcp", edgeTCPAddr.String())
 	if err != nil {
 		return nil, newDialError(err, "DialContext error")
